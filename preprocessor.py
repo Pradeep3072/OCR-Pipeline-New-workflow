@@ -30,14 +30,9 @@ def binarize_and_clear_noise(image):
     # Convert to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
-    # Apply adaptive thresholding for binarization
-    # It handles uneven illumination better than global thresholding
-    binary = cv2.adaptiveThreshold(
-        gray, 255, 
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        cv2.THRESH_BINARY_INV, 
-        11, 2
-    )
+    # Apply Otsu's thresholding (global, handles large text without hollowing it out)
+    # THRESH_BINARY_INV inverts it (text becomes white, background black) for deskewing
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
     
     # Optional: Apply some morphological operations to remove small noise
     kernel = np.ones((1, 1), np.uint8)

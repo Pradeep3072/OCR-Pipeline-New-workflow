@@ -1,4 +1,4 @@
 pdf2image
 opencv-python
 pytesseract
-
+streamlit

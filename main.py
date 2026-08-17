@@ -33,6 +33,7 @@ def main(input_path, output_dir, poppler_path=None):
         return
 
     # Process each page
+    outputs = []
     for i, img in enumerate(images_to_process):
         print(f"\n--- Processing Page {i+1} ---")
         
@@ -56,7 +57,15 @@ def main(input_path, output_dir, poppler_path=None):
         out_json_path = os.path.join(output_dir, f"result_page_{i+1}.json")
         save_result(result, out_json_path)
         
+        outputs.append({
+            "page": i + 1,
+            "image_path": out_img_path,
+            "json_path": out_json_path,
+            "result_data": result
+        })
+        
     print("\nOCR Pipeline completed successfully.")
+    return outputs
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="OCR Pipeline - Full Workflow")
