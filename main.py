@@ -2,6 +2,9 @@ import os
 import cv2
 import argparse
 from preprocessor import convert_pdf_to_images, preprocess_image
+from layout_analyzer import determine_psm
+from ocr_engine import extract_text_and_confidence
+from postprocessor import process_and_flag, save_result
 
 def main(input_path, output_dir, poppler_path=None):
     if not os.path.exists(input_path):
@@ -29,24 +32,36 @@ def main(input_path, output_dir, poppler_path=None):
         print(f"Unsupported file type: {ext}")
         return
 
-    # 2. Image Pre-processing
-    processed_images = []
+    # Process each page
     for i, img in enumerate(images_to_process):
-        print(f"--- Processing Page {i+1} ---")
+        print(f"\n--- Processing Page {i+1} ---")
+        
+        # 2. Image Pre-processing
         processed_img = preprocess_image(img)
-        processed_images.append(processed_img)
         
-        # Save the preprocessed image for verification
-        out_path = os.path.join(output_dir, f"preprocessed_page_{i+1}.png")
-        cv2.imwrite(out_path, processed_img)
-        print(f"Saved preprocessed image to: {out_path}")
+        # Save the preprocessed image for debugging/verification
+        out_img_path = os.path.join(output_dir, f"preprocessed_page_{i+1}.png")
+        cv2.imwrite(out_img_path, processed_img)
+        print(f"  Saved preprocessed image to: {out_img_path}")
         
-    print("\nStep 2 completed successfully. Preprocessing done.")
+        # 3. Dynamic PSM Switching
+        psm_mode = determine_psm(processed_img)
+        
+        # 4. Execution & Verification (OCR)
+        text, avg_conf = extract_text_and_confidence(processed_img, psm_mode)
+        
+        # 5. Flag for Post-Processing / Spellcheck & Output
+        result = process_and_flag(text, avg_conf, psm_mode)
+        
+        out_json_path = os.path.join(output_dir, f"result_page_{i+1}.json")
+        save_result(result, out_json_path)
+        
+    print("\nOCR Pipeline completed successfully.")
     
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="OCR Pipeline - Step 1 & 2")
+    parser = argparse.ArgumentParser(description="OCR Pipeline - Full Workflow")
     parser.add_argument("--input", required=True, help="Path to input PDF or Image file")
-    parser.add_argument("--output_dir", default="output", help="Directory to save preprocessed images")
+    parser.add_argument("--output_dir", default="output", help="Directory to save preprocessed images and JSON results")
     parser.add_argument("--poppler_path", help="Path to poppler binaries (required for PDF on Windows if not in PATH)")
     
     args = parser.parse_args()
