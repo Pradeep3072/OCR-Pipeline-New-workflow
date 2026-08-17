@@ -47,7 +47,7 @@ if uploaded_file is not None:
                         with col1:
                             st.markdown("**Preprocessed Image (Deskewed & Binarized)**")
                             img = Image.open(res["image_path"])
-                            st.image(img, use_column_width=True)
+                            st.image(img, use_container_width=True)
                             
                         with col2:
                             data = res["result_data"]
