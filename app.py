@@ -9,7 +9,7 @@ st.set_page_config(page_title="OCR Pipeline Dashboard", layout="wide")
 st.title("📄 OCR Pipeline Dashboard")
 st.markdown("Upload an image or PDF to extract text using dynamic layout analysis and Tesseract OCR.")
 
-uploaded_file = st.file_uploader("Choose a file (PDF, PNG, JPG, JPEG)", type=["pdf", "png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("Choose a file (PDF, PNG, JPG, JPEG, WEBP)", type=["pdf", "png", "jpg", "jpeg", "webp"])
 
 if uploaded_file is not None:
     st.info(f"File uploaded: {uploaded_file.name}")

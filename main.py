@@ -21,7 +21,7 @@ def main(input_path, output_dir, poppler_path=None):
     if ext == '.pdf':
         print("Detected PDF file.")
         images_to_process = convert_pdf_to_images(input_path, poppler_path)
-    elif ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
+    elif ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp']:
         print("Detected Image file.")
         image = cv2.imread(input_path)
         if image is None:
