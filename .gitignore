@@ -11,3 +11,7 @@ test_image.png
 # IDEs
 .vscode/
 .idea/
+
+# Agent Metadata
+.agents/
+.claude/
