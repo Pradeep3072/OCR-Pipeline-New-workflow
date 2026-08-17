@@ -1,0 +1,13 @@
+# Virtual environments
+.venv/
+venv/
+env/
+__pycache__/
+
+# Output directory
+output/
+test_image.png
+
+# IDEs
+.vscode/
+.idea/
