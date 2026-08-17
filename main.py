@@ -23,10 +23,15 @@ def main(input_path, output_dir, poppler_path=None):
         images_to_process = convert_pdf_to_images(input_path, poppler_path)
     elif ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp']:
         print("Detected Image file.")
-        image = cv2.imread(input_path)
-        if image is None:
-             print(f"Error: Failed to read image '{input_path}'.")
-             return
+        try:
+            from PIL import Image
+            import numpy as np
+            pil_img = Image.open(input_path).convert('RGB')
+            image = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            print(f"Error: Failed to read image '{input_path}'. Exception: {e}")
+            return []
+        
         images_to_process = [image]
     else:
         print(f"Unsupported file type: {ext}")
