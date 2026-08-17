@@ -8,7 +8,8 @@ from postprocessor import process_and_flag, save_result
 
 def main(input_path, output_dir, poppler_path=None):
     if not os.path.exists(input_path):
-        raise ValueError(f"Input file '{input_path}' not found.")
+        print(f"Error: Input file '{input_path}' not found.")
+        return []
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -28,11 +29,13 @@ def main(input_path, output_dir, poppler_path=None):
             pil_img = Image.open(input_path).convert('RGB')
             image = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         except Exception as e:
-            raise ValueError(f"Failed to read image '{input_path}'. Exception: {e}")
+            print(f"Error: Failed to read image '{input_path}'. Exception: {e}")
+            return []
             
         images_to_process = [image]
     else:
-        raise ValueError(f"Unsupported file type: {ext}")
+        print(f"Unsupported file type: {ext}")
+        return []
 
     # Process each page
     outputs = []
