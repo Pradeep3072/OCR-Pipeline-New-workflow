@@ -15,3 +15,7 @@ test_image.png
 # Agent Metadata
 .agents/
 .claude/
+
+# Binaries
+poppler/
+poppler.zip

@@ -1,0 +1,10 @@
+.git
+.gitignore
+.venv
+__pycache__
+poppler
+poppler.zip
+output
+Dockerfile
+.dockerignore
+app.py
