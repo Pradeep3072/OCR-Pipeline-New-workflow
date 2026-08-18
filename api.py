@@ -1,6 +1,7 @@
 import os
 import tempfile
 import shutil
+import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 import base64
@@ -31,8 +32,9 @@ async def process_ocr(file: UploadFile = File(...)):
         local_poppler = os.path.join(os.path.dirname(__file__), "poppler", "poppler-24.08.0", "Library", "bin")
         poppler_path = local_poppler if os.path.exists(local_poppler) else None
         
-        # Run OCR pipeline
-        results = run_pipeline(input_path, output_dir, poppler_path=poppler_path)
+        # Run OCR pipeline asynchronously in a separate thread pool
+        # This prevents the heavy CPU-bound OCR process from blocking FastAPI's main event loop
+        results = await asyncio.to_thread(run_pipeline, input_path, output_dir, poppler_path)
         
         if not results:
             raise HTTPException(status_code=500, detail="Processing failed or returned no results.")
