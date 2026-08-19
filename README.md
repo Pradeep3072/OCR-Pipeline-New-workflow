@@ -4,6 +4,7 @@ A scalable, microservices-based Optical Character Recognition (OCR) pipeline.
 
 ## Architecture & Workflow
 
+![OCR Pipeline Workflow Chart](./OCR-Pipeline%20workflow%20chart.png)
 This project is built using a decoupled, service-oriented architecture to ensure scalability and responsiveness. The workflow is as follows:
 
 1. **User Interface**: Users interact with a **Streamlit** frontend to upload documents for OCR processing.
