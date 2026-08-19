@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: ocr-pipeline
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: ocr-pipeline-api:latest
+        imagePullPolicy: Never # Adjust if using a remote registry
+        command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+        ports:
+        - containerPort: 8000
+        env:
+        - name: CELERY_BROKER_URL
+          value: "redis://redis:6379/0"
+        - name: S3_ENDPOINT_URL
+          value: "http://minio:9000"
+        - name: AWS_ACCESS_KEY_ID
+          value: "minioadmin"
+        - name: AWS_SECRET_ACCESS_KEY
+          value: "minioadmin"
+        - name: S3_BUCKET_NAME
+          value: "ocr-bucket"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: ocr-pipeline
+spec:
+  ports:
+  - port: 8000
+  selector:
+    app: api

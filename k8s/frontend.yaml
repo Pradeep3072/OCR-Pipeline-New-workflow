@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: ocr-pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: ocr-pipeline-frontend:latest
+        imagePullPolicy: Never # Adjust if using a remote registry
+        command: ["streamlit", "run", "app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+        ports:
+        - containerPort: 8501
+        env:
+        - name: API_URL
+          value: "http://api:8000/ocr"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: ocr-pipeline
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8501
+    targetPort: 8501
+  selector:
+    app: frontend

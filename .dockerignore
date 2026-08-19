@@ -7,4 +7,3 @@ poppler.zip
 output
 Dockerfile
 .dockerignore
-app.py
