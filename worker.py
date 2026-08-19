@@ -22,13 +22,35 @@ celery_app.conf.update(
     enable_utc=True,
 )
 
-@celery_app.task(name="process_ocr_task")
-def process_ocr_task(s3_input_key: str, poppler_path: str = None):
+from db.session import SessionLocal
+from db.models import Document
+
+@celery_app.task(name="process_ocr_task", bind=True)
+def process_ocr_task(self, s3_input_key: str, poppler_path: str = None):
     """
     Background task to run the OCR pipeline.
     """
     print(f"Starting OCR task for {s3_input_key}")
-    # run_pipeline will download from S3, process, and upload results to S3
-    results = run_pipeline(s3_input_key, poppler_path=poppler_path)
-    print(f"Finished OCR task for {s3_input_key}")
-    return results
+    
+    db = SessionLocal()
+    try:
+        # run_pipeline will download from S3, process, and upload results to S3
+        results = run_pipeline(s3_input_key, poppler_path=poppler_path)
+        print(f"Finished OCR task for {s3_input_key}")
+        
+        # Update DB
+        doc = db.query(Document).filter(Document.task_id == self.request.id).first()
+        if doc:
+            doc.status = "SUCCESS"
+            doc.result_data = results
+            db.commit()
+            
+        return results
+    except Exception as e:
+        doc = db.query(Document).filter(Document.task_id == self.request.id).first()
+        if doc:
+            doc.status = "FAILED"
+            db.commit()
+        raise e
+    finally:
+        db.close()

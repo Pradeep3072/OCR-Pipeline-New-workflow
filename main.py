@@ -3,10 +3,10 @@ import cv2
 import argparse
 import uuid
 import shutil
-from preprocessor import convert_pdf_to_images, preprocess_image
-from layout_analyzer import determine_psm
-from ocr_engine import extract_text_and_confidence
-from postprocessor import process_and_flag, save_result
+from ocr.preprocessor import convert_pdf_to_images, preprocess_image
+from ocr.layout_analyzer import determine_psm
+from ocr.ocr_engine import extract_text_and_confidence
+from ocr.postprocessor import process_and_flag, save_result
 from s3_utils import download_file_from_s3, upload_file_to_s3
 
 def main(s3_input_key, poppler_path=None):

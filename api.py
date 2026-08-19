@@ -1,19 +1,23 @@
 import os
-import shutil
+import hashlib
 import base64
 import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from worker import celery_app, process_ocr_task
 from celery.result import AsyncResult
 from s3_utils import upload_file_to_s3, get_file_bytes_from_s3
+from db.session import get_db, engine
+from db.models import Base, Document
+
+# Ensure database tables exist
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="OCR Pipeline API", description="Distributed API for OCR Pipeline using Celery")
 
-# Local shared dir is no longer needed since we use S3
-
 @app.post("/ocr")
-async def process_ocr(file: UploadFile = File(...)):
+async def process_ocr(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
         
@@ -21,12 +25,39 @@ async def process_ocr(file: UploadFile = File(...)):
     if ext not in ['.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp']:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
         
-    file_id = str(uuid.uuid4())
-    s3_key = f"uploads/{file_id}{ext}"
-    
     try:
+        # Read the file to calculate hash
+        file_bytes = await file.read()
+        
+        # Calculate SHA256 hash
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        
+        # Check database for existing document with this hash
+        existing_doc = db.query(Document).filter(Document.file_hash == file_hash).first()
+        
+        if existing_doc:
+            if existing_doc.status == "SUCCESS":
+                # Return cached result immediately
+                return JSONResponse(content={
+                    "status": "success",
+                    "task_id": existing_doc.task_id,
+                    "results": existing_doc.result_data,
+                    "cached": True
+                })
+            elif existing_doc.status == "PENDING":
+                # It is already being processed, return existing task id
+                return JSONResponse(content={
+                    "status": "processing",
+                    "task_id": existing_doc.task_id,
+                    "cached": True
+                })
+        
+        # If not cached or it failed previously, process it again
+        file_id = str(uuid.uuid4())
+        s3_key = f"uploads/{file_id}{ext}"
+        
         # Upload uploaded file to S3
-        upload_file_to_s3(file.file, s3_key)
+        upload_file_to_s3(file_bytes, s3_key)
             
         # Determine poppler path
         local_poppler = os.path.join(os.path.dirname(__file__), "poppler", "poppler-24.08.0", "Library", "bin")
@@ -35,9 +66,27 @@ async def process_ocr(file: UploadFile = File(...)):
         # Send task to Celery
         task = process_ocr_task.delay(s3_key, poppler_path)
         
-        return JSONResponse(content={"status": "processing", "task_id": task.id})
+        # Save to database
+        if existing_doc:
+            existing_doc.status = "PENDING"
+            existing_doc.task_id = task.id
+            existing_doc.s3_key = s3_key
+            existing_doc.result_data = None
+        else:
+            new_doc = Document(
+                file_hash=file_hash,
+                s3_key=s3_key,
+                status="PENDING",
+                task_id=task.id
+            )
+            db.add(new_doc)
+            
+        db.commit()
+        
+        return JSONResponse(content={"status": "processing", "task_id": task.id, "cached": False})
         
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/ocr/{task_id}")
