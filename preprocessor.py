@@ -1,18 +1,22 @@
 import os
 import cv2
 import numpy as np
-from pdf2image import convert_from_path
+from pdf2image import convert_from_path, pdfinfo_from_path
 
-def convert_pdf_to_images(pdf_path, poppler_path=None):
+def convert_pdf_to_images(pdf_path, poppler_path=None, max_pages=50):
     """
     Converts a PDF file to a list of OpenCV images (numpy arrays).
     """
     print(f"Converting {pdf_path} to images...")
     try:
+        info = pdfinfo_from_path(pdf_path, poppler_path=poppler_path)
+        if info["Pages"] > max_pages:
+            raise ValueError(f"PDF exceeds maximum allowed pages ({max_pages}). It has {info['Pages']} pages.")
+            
         # Convert to PIL images
         pil_images = convert_from_path(pdf_path, poppler_path=poppler_path)
     except Exception as e:
-        print("Error converting PDF. Ensure poppler is installed and in your PATH, or provide --poppler_path.")
+        print(f"Error converting PDF: {e}")
         raise e
         
     cv_images = []
