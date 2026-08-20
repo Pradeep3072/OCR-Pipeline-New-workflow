@@ -2,7 +2,7 @@ import os
 import hashlib
 import base64
 import uuid
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from worker import celery_app, process_ocr_task
@@ -10,6 +10,9 @@ from celery.result import AsyncResult
 from s3_utils import upload_file_to_s3, get_file_bytes_from_s3
 from db.session import get_db, engine
 from db.models import Base, Document
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 # Ensure database tables exist
 Base.metadata.create_all(bind=engine)
@@ -17,7 +20,11 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(title="OCR Pipeline API", description="Distributed API for OCR Pipeline using Celery")
 
 @app.post("/ocr")
-async def process_ocr(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def process_ocr(
+    file: UploadFile = File(...), 
+    ground_truth: str = Form(None),
+    db: Session = Depends(get_db)
+):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
         
@@ -64,7 +71,7 @@ async def process_ocr(file: UploadFile = File(...), db: Session = Depends(get_db
         poppler_path = local_poppler if os.path.exists(local_poppler) else None
         
         # Send task to Celery
-        task = process_ocr_task.delay(s3_key, poppler_path)
+        task = process_ocr_task.delay(s3_key, poppler_path, ground_truth)
         
         # Save to database
         if existing_doc:
@@ -86,6 +93,7 @@ async def process_ocr(file: UploadFile = File(...), db: Session = Depends(get_db
         return JSONResponse(content={"status": "processing", "task_id": task.id, "cached": False})
         
     except Exception as e:
+        logger.error(f"Error processing OCR request: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -98,11 +106,15 @@ async def get_ocr_status(task_id: str):
     elif task_result.state == "FAILURE":
         return JSONResponse(content={"status": "failed", "task_id": task_id, "error": str(task_result.info)})
     elif task_result.state == "SUCCESS":
-        results = task_result.result
+        task_data = task_result.result
         
-        if not results:
+        if not task_data or "results" not in task_data:
             return JSONResponse(content={"status": "failed", "detail": "Processing returned no results."})
             
+        results = task_data["results"]
+        processing_time = task_data.get("processing_time")
+        evaluation_metrics = task_data.get("evaluation_metrics")
+        
         # Format the response
         response_data = []
         for res in results:
@@ -121,7 +133,13 @@ async def get_ocr_status(task_id: str):
                 "image_base64": image_base64
             })
             
-        return JSONResponse(content={"status": "success", "task_id": task_id, "results": response_data})
+        return JSONResponse(content={
+            "status": "success", 
+            "task_id": task_id, 
+            "results": response_data,
+            "processing_time": processing_time,
+            "evaluation_metrics": evaluation_metrics
+        })
     else:
         return JSONResponse(content={"status": task_result.state.lower(), "task_id": task_id})
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, JSON, DateTime
+from sqlalchemy import Column, String, JSON, DateTime, Float
 from sqlalchemy.sql import func
 from .session import Base
 
@@ -19,6 +19,12 @@ class Document(Base):
     
     # Store the final OCR JSON results
     result_data = Column(JSON, nullable=True)
+    
+    # Store the processing time in seconds
+    processing_time = Column(Float, nullable=True)
+    
+    # Store evaluation metrics if testing phase
+    evaluation_metrics = Column(JSON, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

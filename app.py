@@ -20,6 +20,11 @@ uploaded_file = st.file_uploader("Choose a file (PDF, PNG, JPG, JPEG, WEBP)", ty
 if uploaded_file is not None:
     st.info(f"File uploaded: {uploaded_file.name}")
     
+    testing_phase = st.toggle("Enable Testing Phase")
+    ground_truth_text = ""
+    if testing_phase:
+        ground_truth_text = st.text_area("Paste Ground Truth Text here for Evaluation (Optional)", height=150)
+    
     if st.button("Run OCR Pipeline", type="primary"):
         task_id = None
         
@@ -27,7 +32,11 @@ if uploaded_file is not None:
         with st.spinner("Submitting document to the queue..."):
             try:
                 files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-                response = requests.post(API_URL, files=files)
+                data = {}
+                if testing_phase and ground_truth_text.strip():
+                    data["ground_truth"] = ground_truth_text.strip()
+                
+                response = requests.post(API_URL, files=files, data=data)
                 
                 if response.status_code == 200:
                     data = response.json()
@@ -41,10 +50,11 @@ if uploaded_file is not None:
                 st.error("Could not connect to the API. Is the FastAPI server running?")
                 st.stop()
         
-        # 2. Poll the API for the result
         if task_id:
             status_placeholder = st.empty()
             results = None
+            processing_time = None
+            evaluation_metrics = None
             
             with st.spinner("Worker is processing your file..."):
                 while True:
@@ -56,7 +66,13 @@ if uploaded_file is not None:
                             
                             if status == "success":
                                 results = poll_data.get("results", [])
-                                status_placeholder.success("Processing complete!")
+                                processing_time = poll_data.get("processing_time")
+                                evaluation_metrics = poll_data.get("evaluation_metrics")
+                                
+                                if processing_time:
+                                    status_placeholder.success(f"Processing complete! (Time: {processing_time:.2f}s)")
+                                else:
+                                    status_placeholder.success("Processing complete!")
                                 break
                             elif status == "failed":
                                 error_msg = poll_data.get("error") or poll_data.get("detail", "Unknown error")
@@ -77,6 +93,15 @@ if uploaded_file is not None:
             # 3. Render results
             if results:
                 st.divider()
+                
+                if testing_phase:
+                    if evaluation_metrics:
+                        wer = evaluation_metrics.get('wer')
+                        cer = evaluation_metrics.get('cer')
+                        st.info(f"📊 **Evaluation Metrics** — **WER**: `{wer}%` | **CER**: `{cer}%`")
+                    else:
+                        st.warning("⚠️ Testing Phase is ON but no Ground Truth was provided, so metrics were not calculated.")
+                
                 for res in results:
                     st.markdown(f"### Page {res['page']}")
                     col1, col2 = st.columns(2)
