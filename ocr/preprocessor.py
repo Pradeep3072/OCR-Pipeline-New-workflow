@@ -2,12 +2,17 @@ import os
 import cv2
 import numpy as np
 from pdf2image import convert_from_path, pdfinfo_from_path
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 def convert_pdf_to_images(pdf_path, poppler_path=None, max_pages=50):
     """
     Converts a PDF file to a list of OpenCV images (numpy arrays).
     """
-    print(f"Converting {pdf_path} to images...")
+    logger.info(f"Converting {pdf_path} to images...")
     try:
         info = pdfinfo_from_path(pdf_path, poppler_path=poppler_path)
         if info["Pages"] > max_pages:
@@ -16,7 +21,7 @@ def convert_pdf_to_images(pdf_path, poppler_path=None, max_pages=50):
         # Convert to PIL images
         pil_images = convert_from_path(pdf_path, poppler_path=poppler_path)
     except Exception as e:
-        print(f"Error converting PDF: {e}")
+        logger.error(f"Error converting PDF: {e}")
         raise e
         
     cv_images = []
@@ -87,12 +92,12 @@ def preprocess_image(image):
     """
     Full pipeline for step 2: Binarize -> Denoise -> Deskew
     """
-    print("  Applying binarization and noise reduction...")
+    logger.info("  Applying binarization and noise reduction...")
     binarized = binarize_and_clear_noise(image)
     
-    print("  Detecting and fixing skew...")
+    logger.info("  Detecting and fixing skew...")
     deskewed, angle = detect_and_fix_skew(binarized)
-    print(f"  Deskew angle: {angle:.2f} degrees")
+    logger.info(f"  Deskew angle: {angle:.2f} degrees")
     
     # Convert back to standard binarized (black text on white bg) for further steps
     final_image = cv2.bitwise_not(deskewed)

@@ -8,6 +8,9 @@ from ocr.layout_analyzer import determine_psm
 from ocr.ocr_engine import extract_text_and_confidence
 from ocr.postprocessor import process_and_flag, save_result
 from s3_utils import download_file_from_s3, upload_file_to_s3
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 def main(s3_input_key, poppler_path=None):
     temp_dir = f"/tmp/{uuid.uuid4()}"
@@ -20,7 +23,7 @@ def main(s3_input_key, poppler_path=None):
     try:
         download_file_from_s3(s3_input_key, local_input_path)
     except Exception as e:
-        print(f"Error downloading {s3_input_key} from S3: {e}")
+        logger.error(f"Error downloading {s3_input_key} from S3: {e}")
         return []
 
     # 1. Identify Type & Route
@@ -28,28 +31,28 @@ def main(s3_input_key, poppler_path=None):
     
     images_to_process = []
     if ext == '.pdf':
-        print("Detected PDF file.")
+        logger.info("Detected PDF file.")
         images_to_process = convert_pdf_to_images(local_input_path, poppler_path)
     elif ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.webp']:
-        print("Detected Image file.")
+        logger.info("Detected Image file.")
         try:
             from PIL import Image
             import numpy as np
             pil_img = Image.open(local_input_path).convert('RGB')
             image = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         except Exception as e:
-            print(f"Error: Failed to read image '{local_input_path}'. Exception: {e}")
+            logger.error(f"Failed to read image '{local_input_path}'. Exception: {e}")
             return []
             
         images_to_process = [image]
     else:
-        print(f"Unsupported file type: {ext}")
+        logger.error(f"Unsupported file type: {ext}")
         return []
 
     # Process each page
     outputs = []
     for i, img in enumerate(images_to_process):
-        print(f"\n--- Processing Page {i+1} ---")
+        logger.info(f"--- Processing Page {i+1} ---")
         
         # 2. Image Pre-processing
         processed_img = preprocess_image(img)
@@ -81,9 +84,9 @@ def main(s3_input_key, poppler_path=None):
     try:
         shutil.rmtree(temp_dir)
     except Exception as e:
-        print(f"Warning: Failed to clean up temp dir {temp_dir}: {e}")
+        logger.warning(f"Failed to clean up temp dir {temp_dir}: {e}")
         
-    print("\nOCR Pipeline completed successfully.")
+    logger.info("OCR Pipeline completed successfully.")
     return outputs
     
 if __name__ == "__main__":

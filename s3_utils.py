@@ -2,6 +2,9 @@ import boto3
 from botocore.client import Config
 import os
 import io
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "http://localhost:9000")
 S3_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
@@ -47,5 +50,5 @@ def get_file_bytes_from_s3(object_name):
         response = s3.get_object(Bucket=S3_BUCKET_NAME, Key=object_name)
         return response['Body'].read()
     except Exception as e:
-        print(f"Error fetching {object_name} from S3: {e}")
+        logger.error(f"Error fetching {object_name} from S3: {e}")
         return None

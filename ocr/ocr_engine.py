@@ -2,6 +2,11 @@ import pytesseract
 from pytesseract import Output
 import numpy as np
 import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 def extract_text_and_confidence(image, psm_mode):
     """
@@ -9,17 +14,17 @@ def extract_text_and_confidence(image, psm_mode):
     Returns the extracted text and the average confidence score.
     """
     custom_config = f'--psm {psm_mode}'
-    print(f"  Executing Tesseract with config: {custom_config}")
+    logger.info(f"  Executing Tesseract with config: {custom_config}")
     
     try:
         # data contains bounding boxes, confidences, and text for each word
         data = pytesseract.image_to_data(image, config=custom_config, output_type=Output.DICT)
     except pytesseract.TesseractNotFoundError:
-        print("\n[ERROR] Tesseract-OCR is not installed or not in your PATH.")
-        print("Please install it from https://github.com/UB-Mannheim/tesseract/wiki and restart your terminal.")
+        logger.error("\n[ERROR] Tesseract-OCR is not installed or not in your PATH.")
+        logger.error("Please install it from https://github.com/UB-Mannheim/tesseract/wiki and restart your terminal.")
         sys.exit(1)
     except Exception as e:
-        print(f"\n[ERROR] OCR Failed: {e}")
+        logger.error(f"\n[ERROR] OCR Failed: {e}")
         sys.exit(1)
         
     confidences = []

@@ -1,5 +1,10 @@
 import json
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 def process_and_flag(text, confidence, psm_mode):
     """
@@ -9,10 +14,10 @@ def process_and_flag(text, confidence, psm_mode):
     
     # Check if confidence is below 70%
     if confidence < 70.0:
-        print(f"  [Warning] Confidence ({confidence:.2f}%) is below 70%. Flagging for review.")
+        logger.warning(f"  [Warning] Confidence ({confidence:.2f}%) is below 70%. Flagging for review.")
         needs_review = True
     else:
-        print(f"  [Success] High confidence extraction ({confidence:.2f}%).")
+        logger.info(f"  [Success] High confidence extraction ({confidence:.2f}%).")
         
     result = {
         "text": text,
@@ -30,4 +35,4 @@ def save_result(result, filepath):
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(result, f, indent=4, ensure_ascii=False)
-    print(f"  Saved structured result to: {filepath}")
+    logger.info(f"  Saved structured result to: {filepath}")
