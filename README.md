@@ -47,16 +47,22 @@ The easiest way to run the entire microservices stack (Frontend, API, Worker, Re
    cp .env.example .env
    ```
 
-3. **Start the Services (Smart Deployment):**
-   Instead of running docker-compose manually, use the smart startup script. First, ensure you have set your desired environment in your `.env` file:
+3. **Start the Services (Docker Compose):**
+   The simplest way to run the stack is directly through Docker Compose. Run the following command in the root directory:
+   ```bash
+   docker-compose up --build -d
+   ```
+   *This command will build the frontend, API, and worker images, and spin up all 6 containers in the background.*
+
+4. **Alternative: Smart Startup Script:**
+   You can also use the smart startup script to toggle between local Docker deployment and Kubernetes deployment. Ensure you have set your desired environment in your `.env` file:
    - Set `USE_K8S=false` to deploy locally using Docker Compose.
    - Set `USE_K8S=true` to deploy to a Kubernetes cluster using `kubectl`.
    
-   Run the following command in the root directory:
-   ```bash
+   Run the following command:
+   ```powershell
    .\start.ps1
    ```
-   *Note: If you bypass this script and manually run `docker-compose up`, Kubernetes will not run regardless of your `.env` setting.*
 
 4. **Access the Application:**
    Once the containers are running, you can access the different endpoints in your browser:
