@@ -1,6 +1,5 @@
 import os
 from celery import Celery
-from main import main as run_pipeline
 from logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +24,7 @@ celery_app.conf.update(
     enable_utc=True,
 )
 
+from pipeline import main as run_pipeline
 from db.session import SessionLocal
 from db.models import Document
 

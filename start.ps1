@@ -24,6 +24,18 @@ if ($useK8s) {
         Write-Host "Error: kubectl is not installed or not in PATH." -ForegroundColor Red
     }
 } else {
+    # Start FastAPI Server
+    Write-Host "Starting FastAPI server..." -ForegroundColor Cyan
+    Start-Process powershell -ArgumentList "-NoExit -Command `$env:PYTHONPATH='.\backend'; uvicorn backend.api:app --reload`"
+
+    # Start Celery Worker
+    Write-Host "Starting Celery worker..." -ForegroundColor Cyan
+    Start-Process powershell -ArgumentList "-NoExit -Command `$env:PYTHONPATH='.\backend'; celery -A backend.worker.celery_app worker --loglevel=info`"
+
+    # Start Streamlit Frontend
+    Write-Host "Starting Streamlit frontend..." -ForegroundColor Cyan
+    Start-Process powershell -ArgumentList "-NoExit -Command `streamlit run frontend/app.py`"
+    
     Write-Host "USE_K8S is false (or not set) in .env" -ForegroundColor Cyan
     Write-Host "Deploying using Docker Compose..." -ForegroundColor Green
     

@@ -27,6 +27,7 @@ if uploaded_file is not None:
     
     if st.button("Run OCR Pipeline", type="primary"):
         task_id = None
+        is_cached = False
         
         # 1. Submit the file and get a task ID
         with st.spinner("Submitting document to the queue..."):
@@ -41,7 +42,11 @@ if uploaded_file is not None:
                 if response.status_code == 200:
                     data = response.json()
                     task_id = data.get("task_id")
-                    st.success(f"Task submitted! ID: `{task_id}`")
+                    is_cached = data.get("cached", False)
+                    if is_cached:
+                        st.success(f"Duplicate file found! Fetching from cache... ID: `{task_id}`")
+                    else:
+                        st.success(f"Task submitted! ID: `{task_id}`")
                 else:
                     st.error(f"API Error ({response.status_code}): {response.text}")
                     st.stop()
@@ -56,7 +61,8 @@ if uploaded_file is not None:
             processing_time = None
             evaluation_metrics = None
             
-            with st.spinner("Worker is processing your file..."):
+            with st.spinner("Retrieving from cache..." if is_cached else "Worker is processing your file..."):
+                start_time = time.time()
                 while True:
                     try:
                         poll_resp = requests.get(f"{API_URL}/{task_id}")
@@ -68,8 +74,11 @@ if uploaded_file is not None:
                                 results = poll_data.get("results", [])
                                 processing_time = poll_data.get("processing_time")
                                 evaluation_metrics = poll_data.get("evaluation_metrics")
+                                retrieve_time = time.time() - start_time
                                 
-                                if processing_time:
+                                if is_cached:
+                                    status_placeholder.success(f"Retrieved from cache in {retrieve_time:.3f}s! (Original processing time: {processing_time:.2f}s)")
+                                elif processing_time:
                                     status_placeholder.success(f"Processing complete! (Time: {processing_time:.2f}s)")
                                 else:
                                     status_placeholder.success("Processing complete!")

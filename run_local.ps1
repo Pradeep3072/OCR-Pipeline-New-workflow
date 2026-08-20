@@ -18,13 +18,19 @@ if (Test-Path ".venv\Scripts\activate.ps1") {
     . ".venv\Scripts\activate.ps1"
 }
 
-Write-Host "Starting FastAPI Backend..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "if (Test-Path '.venv\Scripts\activate.ps1') { . '.venv\Scripts\activate.ps1' }; `$env:CELERY_BROKER_URL='redis://localhost:6379/0'; `$env:S3_ENDPOINT_URL='http://localhost:9000'; `$env:AWS_ACCESS_KEY_ID='minioadmin'; `$env:AWS_SECRET_ACCESS_KEY='minioadmin'; `$env:S3_BUCKET_NAME='ocr-bucket'; uvicorn api:app --host 0.0.0.0 --port 8000 --reload"
+# Set PYTHONPATH for local backend
+$env:PYTHONPATH = ".\backend"
 
-Write-Host "Starting Celery Worker..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "if (Test-Path '.venv\Scripts\activate.ps1') { . '.venv\Scripts\activate.ps1' }; `$env:CELERY_BROKER_URL='redis://localhost:6379/0'; `$env:S3_ENDPOINT_URL='http://localhost:9000'; `$env:AWS_ACCESS_KEY_ID='minioadmin'; `$env:AWS_SECRET_ACCESS_KEY='minioadmin'; `$env:S3_BUCKET_NAME='ocr-bucket'; celery -A worker.celery_app worker --loglevel=info --pool=solo"
+# Start FastAPI API
+Write-Host "Starting FastAPI..." -ForegroundColor Green
+Start-Process -NoNewWindow -FilePath "uvicorn" -ArgumentList "backend.api:app", "--host", "0.0.0.0", "--port", "8000"
 
-Write-Host "Starting Streamlit Frontend..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "if (Test-Path '.venv\Scripts\activate.ps1') { . '.venv\Scripts\activate.ps1' }; `$env:API_URL='http://localhost:8000/ocr'; streamlit run app.py"
+# Start Celery Worker
+Write-Host "Starting Celery worker..." -ForegroundColor Green
+Start-Process -NoNewWindow -FilePath "celery" -ArgumentList "-A", "backend.worker.celery_app", "worker", "--loglevel=info"
 
-Write-Host "All services started in separate windows!" -ForegroundColor Green
+# Start Streamlit Dashboard
+Write-Host "Starting Streamlit UI..." -ForegroundColor Green
+Start-Process -NoNewWindow -FilePath "streamlit" -ArgumentList "run", "frontend/app.py"
+
+Write-Host "All services started!" -ForegroundColor Green

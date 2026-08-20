@@ -33,7 +33,7 @@ services:
 
   api:
     build: .
-    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    command: uvicorn backend.api:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     environment:
@@ -50,7 +50,7 @@ services:
 
   worker:
     build: .
-    command: celery -A worker.celery_app worker --loglevel=info
+    command: celery -A backend.worker.celery_app worker --loglevel=info
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - S3_ENDPOINT_URL=http://minio:9000
@@ -65,7 +65,7 @@ services:
 
   frontend:
     build: .
-    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    command: streamlit run frontend/app.py --server.port 8501 --server.address 0.0.0.0
     ports:
       - "8501:8501"
     environment:
