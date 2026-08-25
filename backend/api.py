@@ -194,9 +194,22 @@ class ChatRequest(BaseModel):
 @app.post("/ocr/{task_id}/chat")
 async def chat_with_document(task_id: str, request: ChatRequest):
     try:
-        from rag import ask_question
-        answer = ask_question(task_id, request.question)
-        return JSONResponse(content={"status": "success", "task_id": task_id, "answer": answer})
+        from rag import ask_question, evaluate_answer
+        
+        # Get answer and contexts
+        rag_result = ask_question(task_id, request.question)
+        answer = rag_result.get("answer", "")
+        contexts = rag_result.get("contexts", [])
+        
+        # Evaluate the answer
+        metrics = evaluate_answer(request.question, answer, contexts)
+        
+        return JSONResponse(content={
+            "status": "success", 
+            "task_id": task_id, 
+            "answer": answer,
+            "metrics": metrics
+        })
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))

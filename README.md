@@ -4,16 +4,101 @@ A scalable, microservices-based Optical Character Recognition (OCR) pipeline.
 
 ## Architecture & Workflow
 
-![OCR Pipeline Workflow Chart](./OCR-Pipeline%20workflow%20chart.png)
-This project is built using a decoupled, service-oriented architecture to ensure scalability and responsiveness. The workflow is as follows:
+![OCR & RAG Pipeline Workflow](./OCR%20&%20RAG%20pipeline.png)
 
-1. **User Interface**: Users interact with a **Streamlit** frontend to upload documents for OCR processing.
-2. **API Gateway**: The frontend sends the document to a **FastAPI** backend via an HTTP request.
-3. **Storage**: The API uploads the raw document to **MinIO**, an S3-compatible object storage service.
-4. **Task Queuing**: Instead of processing the document synchronously (which would block the API), the API creates an asynchronous task and pushes it to a **Redis** message queue.
-5. **Background Processing**: A **Celery Worker** process continuously monitors Redis for new tasks. It picks up the OCR task, downloads the document from MinIO, and performs the heavy OCR processing.
-6. **Result Storage**: Once processing is complete, the worker saves the extracted text and metadata back to MinIO and updates the task status.
-7. **Retrieval**: The frontend periodically polls the API for the task status. Once complete, it retrieves the results and displays them to the user.
+This project is built using a decoupled, service-oriented architecture to ensure scalability and responsiveness. The complete end-to-end workflow is as follows:
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Frontend
+    participant API as FastAPI Backend
+    participant Postgres as PostgreSQL DB
+    participant MinIO as MinIO (S3 Storage)
+    participant Redis as Redis Broker
+    participant Worker as Celery Worker
+    participant Milvus as Milvus Vector DB
+    participant LLM as Groq LLM
+
+    %% Document Upload Phase
+    User->>Frontend: Uploads Document (PDF/Image)
+    Frontend->>API: POST /ocr (File bytes)
+    API->>API: Calculate SHA-256 Hash
+    API->>Postgres: Check if hash exists
+    alt Hash Exists & Success
+        Postgres-->>API: Return cached OCR result & Task ID
+        API-->>Frontend: Return instant cache hit
+    else New Document
+        API->>MinIO: Upload raw file (S3)
+        API->>Postgres: Create new Document record (PENDING)
+        API->>Redis: Enqueue OCR processing task
+        API-->>Frontend: Return Task ID (Processing...)
+        
+        %% Background Processing Phase
+        Redis->>Worker: Consume OCR task
+        Worker->>MinIO: Download raw file
+        Worker->>Worker: Convert to Images (poppler)
+        Worker->>Worker: Extract text & bounding boxes (Tesseract OCR)
+        Worker->>Postgres: Update Document record (SUCCESS)
+    end
+
+    %% Chat Phase
+    User->>Frontend: Asks a question about Document
+    Frontend->>API: POST /ocr/{task_id}/chat
+    API->>Postgres: Fetch OCR text for this task
+    API->>API: Chunk text (RecursiveCharacterTextSplitter)
+    
+    %% Embedding Phase
+    alt First Time Chatting
+        API->>API: Generate Embeddings (HuggingFace MiniLM)
+        API->>Milvus: Store embeddings in unique collection `doc_{task_id}`
+    end
+    
+    %% RAG Retrieval & Generation
+    API->>API: Embed user's question
+    API->>Milvus: Search top-k similar text chunks
+    Milvus-->>API: Return relevant contexts
+    API->>LLM: Prompt with Context + Question
+    LLM-->>API: Stream/Return Answer
+    
+    %% Evaluation Phase
+    API->>LLM: Evaluate Faithfulness & Relevancy (Custom Judge)
+    LLM-->>API: Return scores (0.0 - 1.0)
+    API-->>Frontend: Return Answer + Evaluation Scores
+    Frontend-->>User: Display response
+```
+
+### 1. The Upload Phase (Deduplication & Storage)
+1. **Fingerprinting**: When a user uploads a file, the FastAPI backend (`api.py`) immediately calculates a cryptographic SHA-256 hash of the file's bytes.
+2. **Deduplication Check**: The system queries the **PostgreSQL Database** to see if a document with this exact hash has already been processed.
+   - If it has, the system skips all heavy lifting and instantly returns the cached result.
+   - If it hasn't, the raw file is saved to **MinIO** (an S3-compatible object storage server).
+3. **Queueing**: The backend inserts a `PENDING` record into PostgreSQL and pushes a message to **Redis**, which acts as a message broker for the background workers.
+
+### 2. The OCR Processing Phase (Background Worker)
+1. **Task Consumption**: The **Celery Worker** (`worker.py`), which runs independently of the API, picks up the task from Redis.
+2. **Extraction**:
+   - It downloads the raw file from MinIO.
+   - If it's a PDF, `pdf2image` (powered by Poppler) converts the pages into high-resolution images.
+   - `pytesseract` (Tesseract OCR) scans the images to extract raw text strings and bounding box coordinates for every word.
+3. **Completion**: The worker updates the PostgreSQL record's status to `SUCCESS` and saves the extracted JSON text into the database.
+
+### 3. The Embedding Phase (Vectorization)
+When the user asks their first question about the document:
+1. **Chunking**: The backend retrieves the raw OCR text from PostgreSQL and splits it into smaller, overlapping paragraphs using Langchain's `RecursiveCharacterTextSplitter`.
+2. **Embedding**: It uses a local HuggingFace embedding model (`all-MiniLM-L6-v2`) to convert these text chunks into numerical vectors (arrays of numbers representing semantic meaning).
+3. **Vector Storage**: These vectors are saved permanently into the **Milvus Vector Database** inside a dedicated collection named after the document's unique ID.
+
+### 4. The RAG & Chat Phase (Retrieval-Augmented Generation)
+1. **Semantic Search**: The user's question is converted into a vector using the same HuggingFace model. The system queries **Milvus** to find the top most mathematically similar text chunks (contexts) from the document.
+2. **LLM Generation**: The system sends a prompt to the **Groq API** (`qwen3.6-27b` model) containing both the retrieved context chunks and the user's question, instructing the LLM to answer the question using *only* the provided context.
+
+### 5. The Evaluation Phase (Custom LLM-as-a-Judge)
+1. **Judging**: Before returning the final answer to the user, the system makes a secondary, lightning-fast request to the Groq LLM.
+2. **Scoring**: It provides the LLM with the context, the question, and the generated answer, asking the LLM to act as an expert judge and rate:
+   - **Faithfulness**: Did the answer hallucinate, or did it stick strictly to the context?
+   - **Answer Relevancy**: Did the answer actually address the user's question?
+3. **Final Output**: The scores are combined with the generated answer and returned to the user's screen.
 
 ## Tech Stack
 

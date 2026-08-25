@@ -166,7 +166,10 @@ if st.session_state.results:
         
         # Show chat history
         for msg in st.session_state.chat_history:
-            st.chat_message(msg["role"]).write(msg["content"])
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+                if msg.get("metrics"):
+                    st.caption(f"📊 Faithfulness: {msg['metrics'].get('faithfulness', 0.0):.2f} | Relevancy: {msg['metrics'].get('answer_relevancy', 0.0):.2f}")
             
         question = st.chat_input("Ask a question about the document...")
         if question:
@@ -177,9 +180,20 @@ if st.session_state.results:
                 try:
                     chat_resp = requests.post(f"{API_URL}/{st.session_state.task_id}/chat", json={"question": question})
                     if chat_resp.status_code == 200:
-                        answer = chat_resp.json().get("answer", "No answer received.")
-                        st.chat_message("assistant").write(answer)
-                        st.session_state.chat_history.append({"role": "assistant", "content": answer})
+                        resp_data = chat_resp.json()
+                        answer = resp_data.get("answer", "No answer received.")
+                        metrics = resp_data.get("metrics", {})
+                        
+                        with st.chat_message("assistant"):
+                            st.write(answer)
+                            if metrics:
+                                st.caption(f"📊 Faithfulness: {metrics.get('faithfulness', 0.0):.2f} | Relevancy: {metrics.get('answer_relevancy', 0.0):.2f}")
+                        
+                        st.session_state.chat_history.append({
+                            "role": "assistant", 
+                            "content": answer,
+                            "metrics": metrics
+                        })
                     else:
                         st.error(f"Failed to fetch answer. API returned {chat_resp.status_code}: {chat_resp.text}")
                 except Exception as e:

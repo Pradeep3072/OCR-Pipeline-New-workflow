@@ -88,7 +88,7 @@ def ask_question(task_id: str, question: str) -> str:
     """Retrieves relevant chunks and generates an answer using Groq API."""
     init_services()
     if not groq_client:
-        return "Error: GROQ_API_KEY is not configured on the server. Please add it to your .env file."
+        return {"answer": "Error: GROQ_API_KEY is not configured on the server. Please add it to your .env file.", "contexts": []}
         
     logger.info(f"Answering question for {task_id}: {question}")
     
@@ -136,7 +136,7 @@ def ask_question(task_id: str, question: str) -> str:
             logger.error(f"Error during lazy indexing: {e}")
             
     if not contexts:
-        return "I could not find any relevant text in the scanned document to answer your question."
+        return {"answer": "I could not find any relevant text in the scanned document to answer your question.", "contexts": []}
         
     context_str = "\n\n---\n\n".join(contexts)
     
@@ -159,7 +159,75 @@ ANSWER:"""
             temperature=0.2,
             max_tokens=1024,
         )
-        return chat_completion.choices[0].message.content
+        return {"answer": chat_completion.choices[0].message.content, "contexts": contexts}
     except Exception as e:
         logger.error(f"Groq API Error: {e}")
-        return f"Error communicating with the LLM API: {str(e)}"
+        return {"answer": f"Error communicating with the LLM API: {str(e)}", "contexts": contexts}
+
+def evaluate_answer(question: str, answer: str, contexts: list) -> dict:
+    """Evaluates the RAG response using Ragas framework."""
+    if not contexts or "Error" in answer or "I could not find any relevant text" in answer:
+        return {"faithfulness": 0.0, "answer_relevancy": 0.0}
+    
+def evaluate_answer(question: str, answer: str, contexts: list[str]) -> dict:
+    """
+    Evaluates the answer for faithfulness and relevancy using a fast, single-pass LLM prompt.
+    """
+    import os
+    import re
+    from langchain_groq import ChatGroq
+    from langchain_core.prompts import PromptTemplate
+
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return {"faithfulness": 0.0, "answer_relevancy": 0.0, "error": "No API key"}
+            
+        llm = ChatGroq(temperature=0, groq_api_key=api_key, model_name="qwen/qwen3.6-27b", max_retries=1)
+        
+        context_str = "\n".join(contexts)
+        
+        prompt = PromptTemplate.from_template("""
+        You are an expert evaluator. Evaluate the given answer based on the following two metrics:
+        
+        1. Faithfulness: Does the answer strictly use information from the Context? (Score 0.0 to 1.0)
+        2. Answer Relevancy: How directly does the answer address the Question? (Score 0.0 to 1.0)
+        
+        Context:
+        {context}
+        
+        Question:
+        {question}
+        
+        Answer:
+        {answer}
+        
+        Return your evaluation exactly in this format:
+        Faithfulness: <score>
+        Relevancy: <score>
+        """)
+        
+        chain = prompt | llm
+        
+        logger.info(f"Running Custom LLM Evaluation for question: {question}")
+        result = chain.invoke({"context": context_str, "question": question, "answer": answer})
+        content = result.content
+        
+        faithfulness = 0.0
+        relevancy = 0.0
+        
+        faith_match = re.search(r'Faithfulness:\s*([0-9.]+)', content, re.IGNORECASE)
+        if faith_match:
+            faithfulness = float(faith_match.group(1))
+            
+        rel_match = re.search(r'Relevancy:\s*([0-9.]+)', content, re.IGNORECASE)
+        if rel_match:
+            relevancy = float(rel_match.group(1))
+            
+        return {
+            "faithfulness": faithfulness,
+            "answer_relevancy": relevancy
+        }
+    except Exception as e:
+        logger.error(f"Custom Evaluation Error: {e}")
+        return {"faithfulness": 0.0, "answer_relevancy": 0.0, "error": str(e)}
