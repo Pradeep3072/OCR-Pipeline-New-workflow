@@ -19,3 +19,6 @@ test_image.png
 # Binaries
 poppler/
 poppler.zip
+
+# Secrets
+.env

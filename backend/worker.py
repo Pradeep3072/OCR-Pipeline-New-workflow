@@ -1,4 +1,6 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from celery import Celery
 from logger import get_logger
 
@@ -49,11 +51,14 @@ def process_ocr_task(self, s3_input_key: str, poppler_path: str = None, ground_t
         end_time = time.time()
         processing_time = end_time - start_time
         
+        # Combine all text from results for RAG and/or metrics
+        full_pred_text = " ".join([res["result_data"]["text"] for res in results])
+        
         evaluation_metrics = None
         if ground_truth:
-            # Combine all text from results for metrics
-            full_pred_text = " ".join([res["result_data"]["text"] for res in results])
             evaluation_metrics = calculate_metrics(full_pred_text, ground_truth)
+            
+        # Index document in Milvus for RAG (Disabled in worker to avoid file lock issues; API does lazy indexing instead)
         
         # Update DB
         doc = db.query(Document).filter(Document.task_id == self.request.id).first()

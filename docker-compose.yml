@@ -43,10 +43,13 @@ services:
       - AWS_SECRET_ACCESS_KEY=minioadmin
       - S3_BUCKET_NAME=ocr-bucket
       - DATABASE_URL=postgresql://ocr_user:ocr_password@db/ocr_db
+      - GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
       - redis
       - minio
       - db
+    volumes:
+      - milvus_data:/app/backend/db
 
   worker:
     build: .
@@ -58,10 +61,13 @@ services:
       - AWS_SECRET_ACCESS_KEY=minioadmin
       - S3_BUCKET_NAME=ocr-bucket
       - DATABASE_URL=postgresql://ocr_user:ocr_password@db/ocr_db
+      - GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
       - redis
       - minio
       - db
+    volumes:
+      - milvus_data:/app/backend/db
 
   frontend:
     build: .
@@ -77,3 +83,4 @@ volumes:
   redis_data:
   minio_data:
   db_data:
+  milvus_data:

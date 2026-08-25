@@ -1,4 +1,6 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import hashlib
 import base64
 import uuid
@@ -98,7 +100,48 @@ async def process_ocr(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/ocr/{task_id}")
-async def get_ocr_status(task_id: str):
+async def get_ocr_status(task_id: str, db: Session = Depends(get_db)):
+    # First, check database in case Redis dropped the task result
+    doc = db.query(Document).filter(Document.task_id == task_id).first()
+    
+    if doc and doc.status == "SUCCESS":
+        # Simulate Celery success structure from DB
+        results = doc.result_data
+        processing_time = doc.processing_time if hasattr(doc, "processing_time") else None
+        evaluation_metrics = doc.evaluation_metrics if hasattr(doc, "evaluation_metrics") else None
+        
+        if not results:
+            return JSONResponse(content={"status": "failed", "detail": "Processing returned no results."})
+            
+        # Format the response
+        response_data = []
+        for res in results:
+            image_base64 = None
+            if "image_s3_key" in res:
+                img_bytes = get_file_bytes_from_s3(res["image_s3_key"])
+                if img_bytes:
+                    image_base64 = base64.b64encode(img_bytes).decode("utf-8")
+                    
+            response_data.append({
+                "page": res["page"],
+                "text": res["result_data"]["text"],
+                "confidence": res["result_data"]["confidence"],
+                "needs_review": res["result_data"]["needs_review"],
+                "psm_mode": res["result_data"]["psm_mode"],
+                "image_base64": image_base64
+            })
+            
+        return JSONResponse(content={
+            "status": "success", 
+            "task_id": task_id, 
+            "results": response_data,
+            "processing_time": processing_time,
+            "evaluation_metrics": evaluation_metrics
+        })
+    elif doc and doc.status == "FAILED":
+        return JSONResponse(content={"status": "failed", "task_id": task_id, "error": "Task failed previously."})
+    
+    # If not finished in DB, fallback to Celery
     task_result = AsyncResult(task_id, app=celery_app)
     
     if task_result.state == "PENDING":
@@ -142,6 +185,21 @@ async def get_ocr_status(task_id: str):
         })
     else:
         return JSONResponse(content={"status": task_result.state.lower(), "task_id": task_id})
+
+from pydantic import BaseModel
+
+class ChatRequest(BaseModel):
+    question: str
+
+@app.post("/ocr/{task_id}/chat")
+async def chat_with_document(task_id: str, request: ChatRequest):
+    try:
+        from rag import ask_question
+        answer = ask_question(task_id, request.question)
+        return JSONResponse(content={"status": "success", "task_id": task_id, "answer": answer})
+    except Exception as e:
+        logger.error(f"Error in chat endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

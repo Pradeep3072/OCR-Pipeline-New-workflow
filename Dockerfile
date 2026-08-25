@@ -17,7 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application
 COPY . .
 
-# Set python path to backend so modules can import each other
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/backend
 
 # Expose the API port
