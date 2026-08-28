@@ -4,7 +4,7 @@ A scalable, microservices-based Optical Character Recognition (OCR) pipeline.
 
 ## Architecture & Workflow
 
-![OCR & RAG Pipeline Workflow](./OCR%20&%20RAG%20pipeline.png)
+![OCR & RAG Pipeline Workflow](./OCR%20&%20RAG.png)
 
 This project is built using a decoupled, service-oriented architecture to ensure scalability and responsiveness. The complete end-to-end workflow is as follows:
 
