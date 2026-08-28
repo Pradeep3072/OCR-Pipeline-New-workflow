@@ -55,10 +55,11 @@ sequenceDiagram
     end
     
     %% RAG Retrieval & Generation
-    API->>API: Embed user's question
+    API->>API: BM25 Sparse Search & Embed question
     API->>Milvus: Search top-k similar text chunks
-    Milvus-->>API: Return relevant contexts
-    API->>LLM: Prompt with Context + Question
+    Milvus-->>API: Return dense search results
+    API->>API: RRF Fusion & Cross-Encoder Reranking
+    API->>LLM: Prompt with Reranked Context + Question
     LLM-->>API: Stream/Return Answer
     
     %% Evaluation Phase
@@ -90,8 +91,12 @@ When the user asks their first question about the document:
 3. **Vector Storage**: These vectors are saved permanently into the **Milvus Vector Database** inside a dedicated collection named after the document's unique ID.
 
 ### 4. The RAG & Chat Phase (Retrieval-Augmented Generation)
-1. **Semantic Search**: The user's question is converted into a vector using the same HuggingFace model. The system queries **Milvus** to find the top most mathematically similar text chunks (contexts) from the document.
-2. **LLM Generation**: The system sends a prompt to the **Groq API** (`qwen3.6-27b` model) containing both the retrieved context chunks and the user's question, instructing the LLM to answer the question using *only* the provided context.
+1. **Hybrid Search (Sparse + Dense)**: 
+   - **Sparse Search**: Uses `BM25Okapi` to find exact keyword matches across document chunks.
+   - **Dense Search**: Converts the user's question into a vector using the HuggingFace model and queries **Milvus** for semantically similar text chunks.
+2. **Reciprocal Rank Fusion (RRF)**: Combines the scores from both BM25 and Milvus into a unified ranked list.
+3. **Reranking**: A Cross-Encoder model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) evaluates the top candidate chunks against the user's question to produce a highly accurate final set of context chunks.
+4. **LLM Generation**: The system sends a prompt to the **Groq API** containing both the reranked context chunks and the user's question, instructing the LLM to answer the question using *only* the provided context.
 
 ### 5. The Evaluation Phase (Custom LLM-as-a-Judge)
 1. **Judging**: Before returning the final answer to the user, the system makes a secondary, lightning-fast request to the Groq LLM.
