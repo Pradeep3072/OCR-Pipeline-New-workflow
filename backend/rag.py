@@ -1,7 +1,8 @@
 import os
 import hashlib
 from pymilvus import MilvusClient
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
+from rank_bm25 import BM25Okapi
 from groq import Groq
 from logger import get_logger
 
@@ -12,28 +13,30 @@ COLLECTION_NAME = "ocr_documents"
 EMBEDDING_DIM = 384 # Dimension for all-MiniLM-L6-v2
 
 embedding_model = None
-milvus_client = None
+cross_encoder_model = None
 groq_client = None
 
 def init_services():
-    global embedding_model, milvus_client, groq_client
+    global embedding_model, cross_encoder_model, groq_client
     
     if embedding_model is None:
         logger.info("Loading sentence-transformer model for RAG...")
         # Note: on first run, this downloads the model (~80MB)
         embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-    
-    if milvus_client is None:
-        logger.info(f"Connecting to Milvus Lite at {MILVUS_DB_PATH}")
-        milvus_client = MilvusClient(MILVUS_DB_PATH)
         
-        # Check and create collection
-        if not milvus_client.has_collection(collection_name=COLLECTION_NAME):
-            milvus_client.create_collection(
-                collection_name=COLLECTION_NAME,
-                dimension=EMBEDDING_DIM
-            )
-            logger.info(f"Created Milvus collection: {COLLECTION_NAME}")
+    if cross_encoder_model is None:
+        logger.info("Loading cross-encoder model for Reranking...")
+        cross_encoder_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    
+def get_milvus_client():
+    client = MilvusClient(MILVUS_DB_PATH)
+    if not client.has_collection(collection_name=COLLECTION_NAME):
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            dimension=EMBEDDING_DIM
+        )
+        logger.info(f"Created Milvus collection: {COLLECTION_NAME}")
+    return client
             
     if groq_client is None:
         api_key = os.getenv("GROQ_API_KEY")
@@ -81,66 +84,135 @@ def index_document(task_id: str, text: str):
             "text": chunk
         })
         
-    milvus_client.insert(collection_name=COLLECTION_NAME, data=data)
-    logger.info(f"Successfully indexed {len(data)} vectors for {task_id}")
+    milvus_client = get_milvus_client()
+    try:
+        milvus_client.insert(collection_name=COLLECTION_NAME, data=data)
+        logger.info(f"Successfully indexed {len(data)} vectors for {task_id}")
+    finally:
+        milvus_client.close()
 
-def ask_question(task_id: str, question: str) -> str:
-    """Retrieves relevant chunks and generates an answer using Groq API."""
+def retrieve_context(task_id: str, question: str) -> list[str]:
+    """Retrieves relevant chunks using Hybrid Search and Reranking."""
     init_services()
-    if not groq_client:
-        return {"answer": "Error: GROQ_API_KEY is not configured on the server. Please add it to your .env file.", "contexts": []}
-        
-    logger.info(f"Answering question for {task_id}: {question}")
     
-    # 1. Embed the question
-    q_emb = embedding_model.encode([question])[0]
+    milvus_client = get_milvus_client()
     
-    # 2. Search Milvus for top 3 matching chunks
-    search_res = milvus_client.search(
-        collection_name=COLLECTION_NAME,
-        data=[q_emb.tolist()],
-        filter=f'task_id == "{task_id}"',
-        limit=3,
-        output_fields=["text"]
-    )
-    
-    contexts = []
-    if search_res and len(search_res[0]) > 0:
-        for hit in search_res[0]:
-            contexts.append(hit['entity']['text'])
-            
-    if not contexts:
-        try:
+    # Check if lazy indexing is needed
+    try:
+        # Check if chunks exist in Milvus
+        res = milvus_client.query(
+            collection_name=COLLECTION_NAME,
+            filter=f'task_id == "{task_id}"',
+            output_fields=["text"],
+            limit=1
+        )
+        if not res:
             from db.session import SessionLocal
             from db.models import Document
             db = SessionLocal()
             doc = db.query(Document).filter(Document.task_id == task_id).first()
             if doc and doc.status == "SUCCESS" and doc.result_data:
                 logger.info(f"Document {task_id} not in Milvus. Lazy Indexing now...")
-                full_text = " ".join([res["result_data"]["text"] for res in doc.result_data])
+                full_text = " ".join([r["result_data"]["text"] for r in doc.result_data])
                 index_document(task_id, full_text)
-                
-                # Retry search
-                search_res = milvus_client.search(
-                    collection_name=COLLECTION_NAME,
-                    data=[q_emb.tolist()],
-                    filter=f'task_id == "{task_id}"',
-                    limit=3,
-                    output_fields=["text"]
-                )
-                if search_res and len(search_res[0]) > 0:
-                    for hit in search_res[0]:
-                        contexts.append(hit['entity']['text'])
             db.close()
-        except Exception as e:
-            logger.error(f"Error during lazy indexing: {e}")
+    except Exception as e:
+        logger.error(f"Error during lazy indexing: {e}")
+
+    # Fetch all chunks for BM25
+    all_chunks_res = milvus_client.query(
+        collection_name=COLLECTION_NAME,
+        filter=f'task_id == "{task_id}"',
+        output_fields=["id", "text"]
+    )
+    
+    if not all_chunks_res:
+        return []
+        
+    corpus_dict = {item['id']: item['text'] for item in all_chunks_res}
+    corpus_ids = list(corpus_dict.keys())
+    corpus_texts = [corpus_dict[cid] for cid in corpus_ids]
+    
+    # 1. Sparse Search (BM25)
+    tokenized_corpus = [doc.split(" ") for doc in corpus_texts]
+    bm25 = BM25Okapi(tokenized_corpus)
+    tokenized_query = question.split(" ")
+    bm25_scores = bm25.get_scores(tokenized_query)
+    
+    # Get top 10 from BM25
+    top_k_bm25 = 10
+    bm25_top_indices = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:top_k_bm25]
+    bm25_results = [(corpus_ids[i], bm25_scores[i]) for i in bm25_top_indices if bm25_scores[i] > 0]
+    
+    # 2. Dense Search (Milvus)
+    q_emb = embedding_model.encode([question])[0]
+    top_k_dense = 10
+    search_res = milvus_client.search(
+        collection_name=COLLECTION_NAME,
+        data=[q_emb.tolist()],
+        filter=f'task_id == "{task_id}"',
+        limit=top_k_dense,
+        output_fields=["text"]
+    )
+    
+    dense_results = []
+    if search_res and len(search_res[0]) > 0:
+        for hit in search_res[0]:
+            dense_results.append((hit['id'], hit['distance']))
             
+    # 3. Reciprocal Rank Fusion (RRF)
+    k_rrf = 60
+    rrf_scores = {}
+    
+    # Add BM25 ranks
+    for rank, (doc_id, _) in enumerate(bm25_results):
+        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (k_rrf + rank + 1)
+        
+    # Add Dense ranks
+    for rank, (doc_id, _) in enumerate(dense_results):
+        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (k_rrf + rank + 1)
+        
+    # Sort by RRF score
+    hybrid_candidates = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    
+    # Take top N for reranking
+    top_n_candidates = 10
+    candidate_ids = [doc_id for doc_id, _ in hybrid_candidates[:top_n_candidates]]
+    candidate_texts = [corpus_dict[doc_id] for doc_id in candidate_ids]
+    
+    # 4. Reranking (CrossEncoder)
+    if candidate_texts:
+        cross_inp = [[question, text] for text in candidate_texts]
+        cross_scores = cross_encoder_model.predict(cross_inp)
+        
+        # Combine texts with scores
+        scored_candidates = list(zip(candidate_texts, cross_scores))
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        
+        # Take final top 3
+        contexts = [text for text, score in scored_candidates[:3]]
+    else:
+        contexts = []
+
+    milvus_client.close()
+    return contexts
+
+def ask_question(task_id: str, question: str) -> dict:
+    """Retrieves relevant chunks using Hybrid Search and Reranking, then generates an answer using Groq API."""
+    init_services()
+    if not groq_client:
+        return {"answer": "Error: GROQ_API_KEY is not configured on the server. Please add it to your .env file.", "contexts": []}
+        
+    logger.info(f"Answering question for {task_id}: {question}")
+    
+    contexts = retrieve_context(task_id, question)
+    
     if not contexts:
         return {"answer": "I could not find any relevant text in the scanned document to answer your question.", "contexts": []}
         
     context_str = "\n\n---\n\n".join(contexts)
     
-    # 3. Prompt Groq LLM
+    # 5. Prompt Groq LLM
     prompt = f"""You are a helpful and intelligent AI assistant. 
 Your task is to answer the user's question based strictly on the provided OCR document context. 
 If the answer cannot be found in the context, explicitly say that you do not know.

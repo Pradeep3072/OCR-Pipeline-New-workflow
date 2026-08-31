@@ -194,14 +194,24 @@ class ChatRequest(BaseModel):
 @app.post("/ocr/{task_id}/chat")
 async def chat_with_document(task_id: str, request: ChatRequest):
     try:
-        from rag import ask_question, evaluate_answer
+        from rag import evaluate_answer
+        import requests
         
-        # Get answer and contexts
-        rag_result = ask_question(task_id, request.question)
-        answer = rag_result.get("answer", "")
-        contexts = rag_result.get("contexts", [])
+        # Forward request to agent_service
+        agent_url = "http://agent_service:8001/chat"
+        payload = {
+            "task_id": task_id,
+            "question": request.question
+        }
         
-        # Evaluate the answer
+        response = requests.post(agent_url, json=payload, timeout=60)
+        response.raise_for_status()
+        agent_result = response.json()
+        
+        answer = agent_result.get("answer", "")
+        contexts = agent_result.get("contexts", [])
+        
+        # Evaluate the answer (reusing existing ragas-style evaluation)
         metrics = evaluate_answer(request.question, answer, contexts)
         
         return JSONResponse(content={

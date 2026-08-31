@@ -4,7 +4,7 @@ A scalable, microservices-based Optical Character Recognition (OCR) pipeline.
 
 ## Architecture & Workflow
 
-![OCR & RAG Pipeline Workflow](./OCR%20&%20RAG.png)
+![OCR & RAG Pipeline Workflow](./OCR%20with%20Agentic%20RAG.png)
 
 This project is built using a decoupled, service-oriented architecture to ensure scalability and responsiveness. The complete end-to-end workflow is as follows:
 
@@ -17,6 +17,8 @@ sequenceDiagram
     participant MinIO as MinIO (S3 Storage)
     participant Redis as Redis Broker
     participant Worker as Celery Worker
+    participant AgentService as Agentic RAG Microservice
+    participant DDG as DuckDuckGo Search
     participant Milvus as Milvus Vector DB
     participant LLM as Groq LLM
 
@@ -45,22 +47,26 @@ sequenceDiagram
     %% Chat Phase
     User->>Frontend: Asks a question about Document
     Frontend->>API: POST /ocr/{task_id}/chat
-    API->>Postgres: Fetch OCR text for this task
-    API->>API: Chunk text (RecursiveCharacterTextSplitter)
+    API->>AgentService: Forward request to Agentic RAG
+    AgentService->>LLM: Initialize LangGraph ReAct Agent
     
-    %% Embedding Phase
-    alt First Time Chatting
-        API->>API: Generate Embeddings (HuggingFace MiniLM)
-        API->>Milvus: Store embeddings in unique collection `doc_{task_id}`
+    %% Agentic Decision Loop
+    AgentService->>AgentService: Agent decides next tool (SearchDocument or WebSearch)
+    
+    alt Agent selects SearchDocument
+        AgentService->>Postgres: Fetch OCR text for this task (if lazy indexing needed)
+        AgentService->>AgentService: BM25 Sparse Search & Embed question
+        AgentService->>Milvus: Search top-k similar text chunks
+        Milvus-->>AgentService: Return dense search results
+        AgentService->>AgentService: RRF Fusion & Cross-Encoder Reranking
+    else Agent selects WebSearch
+        AgentService->>DDG: Search live web for broader context
+        DDG-->>AgentService: Return web search results
     end
     
-    %% RAG Retrieval & Generation
-    API->>API: BM25 Sparse Search & Embed question
-    API->>Milvus: Search top-k similar text chunks
-    Milvus-->>API: Return dense search results
-    API->>API: RRF Fusion & Cross-Encoder Reranking
-    API->>LLM: Prompt with Reranked Context + Question
-    LLM-->>API: Stream/Return Answer
+    AgentService->>LLM: Prompt with Retrieved Context + Question
+    LLM-->>AgentService: Return Agentic Answer
+    AgentService-->>API: Return Answer
     
     %% Evaluation Phase
     API->>LLM: Evaluate Faithfulness & Relevancy (Custom Judge)
@@ -90,13 +96,16 @@ When the user asks their first question about the document:
 2. **Embedding**: It uses a local HuggingFace embedding model (`all-MiniLM-L6-v2`) to convert these text chunks into numerical vectors (arrays of numbers representing semantic meaning).
 3. **Vector Storage**: These vectors are saved permanently into the **Milvus Vector Database** inside a dedicated collection named after the document's unique ID.
 
-### 4. The RAG & Chat Phase (Retrieval-Augmented Generation)
-1. **Hybrid Search (Sparse + Dense)**: 
-   - **Sparse Search**: Uses `BM25Okapi` to find exact keyword matches across document chunks.
-   - **Dense Search**: Converts the user's question into a vector using the HuggingFace model and queries **Milvus** for semantically similar text chunks.
-2. **Reciprocal Rank Fusion (RRF)**: Combines the scores from both BM25 and Milvus into a unified ranked list.
-3. **Reranking**: A Cross-Encoder model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) evaluates the top candidate chunks against the user's question to produce a highly accurate final set of context chunks.
-4. **LLM Generation**: The system sends a prompt to the **Groq API** containing both the reranked context chunks and the user's question, instructing the LLM to answer the question using *only* the provided context.
+### 4. The Agentic RAG Phase (Retrieval & Web Search)
+1. **Agentic Routing**: 
+   - The question is forwarded to the dedicated **Agentic RAG Microservice** (running LangGraph).
+   - A ReAct agent powered by Groq decides the best tool to use to answer the user's question.
+2. **Hybrid Document Search (Tool)**: 
+   - If the agent searches the document, it uses `BM25Okapi` and **Milvus** to find exact matches and semantically similar chunks.
+   - A Cross-Encoder model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) reranks the chunks to provide highly accurate context.
+3. **Web Search Fallback (Tool)**:
+   - If the agent realizes the answer is not in the document, it dynamically uses the **DuckDuckGo Search API** to fetch information from the live web.
+4. **LLM Generation**: The LangGraph agent synthesizes the retrieved information from either tool and returns a comprehensive answer to the backend API.
 
 ### 5. The Evaluation Phase (Custom LLM-as-a-Judge)
 1. **Judging**: Before returning the final answer to the user, the system makes a secondary, lightning-fast request to the Groq LLM.

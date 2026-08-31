@@ -23,7 +23,10 @@ python-dotenv
 ragas
 langchain-groq
 datasets
+rank_bm25
 
 langchain
 langchain-community
 langchain-huggingface
+duckduckgo-search<6
+ddgs
