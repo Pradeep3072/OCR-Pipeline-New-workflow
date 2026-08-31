@@ -212,18 +212,19 @@ async def retrieve_document_context(task_id: str, request: RetrieveRequest):
 async def chat_with_document(task_id: str, request: ChatRequest):
     try:
         from rag import evaluate_answer
-        import requests
+        import httpx
         
-        # Forward request to agent_service
+        # Forward request to agent_service asynchronously to prevent deadlock
         agent_url = os.getenv("AGENT_SERVICE_URL", "http://agent_service:8001/chat")
         payload = {
             "task_id": task_id,
             "question": request.question
         }
         
-        response = requests.post(agent_url, json=payload, timeout=60)
-        response.raise_for_status()
-        agent_result = response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(agent_url, json=payload, timeout=60.0)
+            response.raise_for_status()
+            agent_result = response.json()
         
         answer = agent_result.get("answer", "")
         contexts = agent_result.get("contexts", [])
