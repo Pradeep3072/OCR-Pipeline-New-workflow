@@ -191,6 +191,23 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
     question: str
 
+class RetrieveRequest(BaseModel):
+    query: str
+
+@app.post("/ocr/{task_id}/retrieve")
+async def retrieve_document_context(task_id: str, request: RetrieveRequest):
+    try:
+        from rag import retrieve_context
+        contexts = retrieve_context(task_id, request.query)
+        return JSONResponse(content={
+            "status": "success",
+            "task_id": task_id,
+            "contexts": contexts
+        })
+    except Exception as e:
+        logger.error(f"Error retrieving context: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/ocr/{task_id}/chat")
 async def chat_with_document(task_id: str, request: ChatRequest):
     try:
@@ -198,7 +215,7 @@ async def chat_with_document(task_id: str, request: ChatRequest):
         import requests
         
         # Forward request to agent_service
-        agent_url = "http://agent_service:8001/chat"
+        agent_url = os.getenv("AGENT_SERVICE_URL", "http://agent_service:8001/chat")
         payload = {
             "task_id": task_id,
             "question": request.question

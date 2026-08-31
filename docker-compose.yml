@@ -44,6 +44,7 @@ services:
       - S3_BUCKET_NAME=ocr-bucket
       - DATABASE_URL=postgresql://ocr_user:ocr_password@db/ocr_db
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - AGENT_SERVICE_URL=${AGENT_SERVICE_URL:-http://host.docker.internal:8001/chat}
     depends_on:
       - redis
       - minio
@@ -69,25 +70,6 @@ services:
     volumes:
       - milvus_data:/app/backend/db
 
-  agent_service:
-    build: .
-    command: uvicorn agent_service.main:app --host 0.0.0.0 --port 8001
-    ports:
-      - "8001:8001"
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - S3_ENDPOINT_URL=http://minio:9000
-      - AWS_ACCESS_KEY_ID=minioadmin
-      - AWS_SECRET_ACCESS_KEY=minioadmin
-      - S3_BUCKET_NAME=ocr-bucket
-      - DATABASE_URL=postgresql://ocr_user:ocr_password@db/ocr_db
-      - GROQ_API_KEY=${GROQ_API_KEY}
-    depends_on:
-      - redis
-      - minio
-      - db
-    volumes:
-      - milvus_data:/app/backend/db
 
   frontend:
     build: .
